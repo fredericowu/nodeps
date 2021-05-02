@@ -1,2 +1,7 @@
 __pycache__/
 .env
+tokens/
+celerybeat-schedule
+venv/
+database-mysql/
+._database-mysql
