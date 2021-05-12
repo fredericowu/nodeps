@@ -31,7 +31,7 @@ class XboxFriends(models.Model):
     def generate_token(cls):
         user = os.getenv("XBOX_USER")
         password = os.getenv("XBOX_PASSWORD")
-        os.system(f"echo xbox-authenticate --tokens  {TOKEN_FILE} --email {user} --password {password}")
+        os.system(f"source /home/ubuntu/workspace/nodeps/app/venv/bin/activate; xbox-authenticate --tokens  {TOKEN_FILE} --email {user} --password {password}")
 
 
     @classmethod
