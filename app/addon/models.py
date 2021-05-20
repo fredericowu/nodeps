@@ -46,7 +46,11 @@ class XboxFriends(models.Model):
         xbl_client = XboxLiveClient(auth_mgr.userinfo.userhash, auth_mgr.xsts_token.jwt, auth_mgr.userinfo.xuid)
         friendslist = xbl_client.people.get_friends_own().json()
         people = [o["xuid"] for o in friendslist["people"]]
-        profiles = xbl_client.profile.get_profiles(people).json()["profileUsers"]
+
+        profiles_data = xbl_client.profile.get_profiles(people).json() 
+        profiles = profiles_data.get("profileUsers", [])
+        if not profiles:
+           print("Profile Users not found!!!")
 
         status = {}
         for profile in profiles:
