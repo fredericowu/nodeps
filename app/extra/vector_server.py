@@ -26,8 +26,10 @@ import time
 from queue import Queue
 import threading
 import io
+import os
 import json
 import sys
+import inspect
 import time
 from enum import Enum
 from lib import flask_helpers
@@ -37,7 +39,9 @@ import anki_vector
 from anki_vector import util
 from anki_vector import annotate
 from anki_vector.user_intent import UserIntent
+from anki_vector.util import distance_mm, speed_mmps, degrees, Angle, Pose
 import datetime
+import socket
 
 import threading
 
@@ -52,17 +56,78 @@ except ImportError:
     sys.exit("Cannot import from PIL: Do `pip3 install --user Pillow` to install")
 
 class RobotAction:
-    pass
+    def __init__(self, robot):
+        self.robot = robot
 
+    def do(self, instructions):
+        print("Received Instructions")
+        print(instructions)
+        robot_actions = instructions.get("robot_actions", [])
+        for payload_item in robot_actions:
+            if "say" in payload_item:
+                self.robot.behavior.say_text(payload_item["say"])
+            elif "execute" in payload_item:
+                action_class = next(filter(lambda a: a[0] == payload_item["execute"] and \
+                                                     issubclass(a[1], RobotAction),
+                                           inspect.getmembers(sys.modules[__name__], inspect.isclass)),
+                                    (None, None))[1]
+                if action_class:
+                    execute_kwargs = payload_item.get("execute_kwargs", {})
+                    action_class(self.robot, **execute_kwargs)
+
+        """
+        
+        print(payload)
+        for item in payload:
+            if "text" in item:
+                #print("item text: "+ item["text"])
+                try:
+                    text_payload = json.loads(item["text"])
+                except json.decoder.JSONDecodeError:
+                    text_payload = item["text"]
+                #print("text_payload", text_payload)
+                #import pdb; pdb.set_trace()
+                if type(text_payload) == str:
+                    self.robot.behavior.say_text(text_payload)
+                elif type(text_payload) == dict:
+        """
 
 class RobotContext:
-    want_to_go_to_face = 0
+    def __init__(self, robot):
+        self.robot = robot
+        self.want_to_go_to_face = 0
 
 
 class ComeHere(RobotAction):
-    def __init__(self, robot, payload=None):
+    def __init__(self, robot, arguments=None):
         robot.behavior.drive_off_charger()
-        faces = robot.behavior.find_faces()
+        robot.anim.play_animation_trigger('GreetAfterLongTime')
+        robot.behavior.drive_straight(distance_mm(200), speed_mmps(100))
+        #faces = robot.behavior.find_faces()
+        #print("FACES", faces)
+
+
+class GoToHome(RobotAction):
+    def __init__(self, robot, arguments=None):
+        robot.anim.play_animation_trigger('anim_keepaway_getout_03')
+        robot.anim.play_animation_trigger('anim_keepaway_getout_frustrated_01')
+        robot.anim.play_animation_trigger('anim_keepaway_idleliftdown_01')
+        robot.behavior.drive_on_charger()
+
+
+class LuluIsPlaying(RobotAction):
+    def __init__(self, robot, arguments=None):
+        robot.behavior.drive_off_charger()
+        robot.world.connect_cube()
+        robot.behavior.say_text("Lulu is playing").result(10)
+        robot.anim.play_animation_trigger('GreetAfterLongTime').result(10)
+        robot.behavior.drive_straight(distance_mm(200), speed_mmps(100)).result(10)
+        robot.behavior.say_text("he is playing").result(10)
+        robot.behavior.turn_in_place(degrees(70)).result(10)
+        robot.behavior.say_text("Lulu is playing").result(10)
+        robot.behavior.turn_in_place(degrees(220)).result(10)
+        robot.anim.play_animation_trigger('GreetAfterLongTime').result(10)
+        robot.behavior.drive_on_charger()
 
 
 class Nodeps(anki_vector.AsyncRobot):
@@ -70,16 +135,56 @@ class Nodeps(anki_vector.AsyncRobot):
     activation_word = ["buddy", ]
     deactivation_word = ["hey vector", "hey victor"]
     conversation_active = False
-    last_talk = datetime.datetime.now()
     conversation_active_time = 12
-    _robot = None
+    last_talk = datetime.datetime.now() - datetime.timedelta(seconds=conversation_active_time+1)
+    robot = None
+    last_voice_heard = None
     #_has_control = False
+
+    def process_text(self, text, time_took=None):
+        self.last_voice_heard = datetime.datetime.now()
+
+        # TODO: is_conversation_active( heard_activation / heard_deactivation)
+        Nodeps.conversation_active = False
+        need_processing = False
+        if next(filter(lambda a: a.lower() in text.lower(), Nodeps.deactivation_word), None):
+            print("Vector called!")
+            Nodeps.conversation_active = False
+            self.robot.conn.release_control()
+        elif next(filter(lambda a: a.lower() in text.lower(), Nodeps.activation_word), None) or \
+                (datetime.datetime.now() - Nodeps.last_talk).seconds <= Nodeps.conversation_active_time:
+            Nodeps.conversation_active = True
+            if self.robot.conn._behavior_control_level is None:
+                self.robot.conn.request_control()
+            Nodeps.last_talk = datetime.datetime.now()
+            need_processing = True
+
+        print("Decoded audio [" + str(Nodeps.conversation_active) + "] " + str(time_took) + ": " + text)
+        if need_processing:
+            payload = {
+                "sender": "test_user",
+                "text": text,
+                "metadata": {}
+            }
+            r = requests.post('http://localhost:5005/webhooks/myio/webhook', json=payload)
+            if r.status_code == 200:
+                for item in r.json():
+                    if "text" in item:
+                        try:
+                            text_payload = json.loads(item["text"])
+                        except json.decoder.JSONDecodeError:
+                            text_payload = {"robot_actions": [{"say": item["text"]}]}
+                        self.robot.actions.do(text_payload)
 
     def __init__(self, *args, **kwargs):
         super(Nodeps, self).__init__(*args, **kwargs)
+        Nodeps.recognizer.operation_timeout = 15
         #import pdb; pdb.set_trace()
-        if not Nodeps._robot:
-            Nodeps._robot = self
+        if not Nodeps.robot:
+            Nodeps.robot = self
+            self.actions = RobotAction(self)
+            self.context = RobotContext(self)
+
         #import time; time.sleep(1)
 
         self.events.subscribe(Nodeps.on_control_granted, anki_vector.events.Events.control_granted)
@@ -89,6 +194,19 @@ class Nodeps(anki_vector.AsyncRobot):
 
     def connect(self, *args, **kwargs):
         super(Nodeps, self).connect(*args, **kwargs)
+        """
+        for i in range(10):
+            try:
+                asyncio.run(super(Nodeps, self).connect(*args, **kwargs))
+            except: # (asyncio.exceptions.TimeoutError, anki_vector.connection.VectorAsyncException):
+                print("Trying to connect to vector again")
+                if i % 2 != 0:
+                    os.system("ssh -i ~/.ssh/id_rsa_Vector-S3U5 root@192.168.1.118 reboot")
+                time.sleep(60*3)
+                continue
+
+        print("ended")
+        """
         Nodeps.on_control_granted(self, anki_vector.events.Events.control_granted, None)
 
     @staticmethod
@@ -132,60 +250,54 @@ def create_default_image(image_width, image_height, do_gradient=False):
     image = Image.frombytes('RGB', (image_width, image_height), bytes(image_bytes))
     return image
 
-
 def audio_worker(queue, robot):
     print("starting worker")
     while True:
         audio = queue.get()
         # print("Received audio")
         try:
+            a = datetime.datetime.now()
             text = Nodeps.recognizer.recognize_google(audio)
-            if text:
-                print("Decoded audio [" + str(Nodeps.conversation_active) + "]: " + text)
-
-                if next(filter(lambda a: a.lower() in text.lower(), Nodeps.deactivation_word), None):
-                    print("Vector called!")
-                    Nodeps.conversation_active = False
-                    robot.conn.release_control()
-                elif next(filter(lambda a: a.lower() in text.lower(), Nodeps.activation_word), None) or\
-                     (datetime.datetime.now() - Nodeps.last_talk).seconds <= Nodeps.conversation_active_time:
-                        Nodeps.conversation_active = True
-                        if robot.conn._behavior_control_level is None:
-                            robot.conn.request_control()
-                        Nodeps.last_talk = datetime.datetime.now()
-                        payload = {
-                            "sender": "test_user",
-                            "text": text,
-                            "metadata": {}
-                        }
-                        r = requests.post('http://localhost:5005/webhooks/myio/webhook', json=payload)
-                        if r.status_code == 200:
-                            resp = r.json()
-                            print(resp)
-                            robot.behavior.say_text(resp[0].get("text"))
-                else:
-                    Nodeps.conversation_active = False
+            b = datetime.datetime.now()
         except sr.UnknownValueError:
-            pass
+            continue
         except sr.RequestError as e:
-            pass
+            continue
+        except socket.timeout:
+            continue
         except Exception as e:
             print("OTHER EXCEPTION " + str(e))
+            print("Unexpected error:", sys.exc_info()[0])
+            raise
 
+            #import pdb; pdb.set_trace()
+        if text:
+            robot.process_text(text, time_took=(b - a).seconds)
         # queue.task_done()
 
 
 def audio_listener(queue):
-    with sr.Microphone() as source:
+
+    PREFFERED_MIC = "WEB CAM"
+    try:
+        device_index = sr.Microphone.list_microphone_names().index(PREFFERED_MIC)
+    except ValueError:
+        device_index = None
+
+    print("device_index = " + str(device_index))
+    with sr.Microphone(device_index=device_index) as source:
+    #with sr.Microphone() as source:
         print("Say something!")
         while True:
             try:
+                a = datetime.datetime.now()
                 audio = Nodeps.recognizer.listen(source, timeout=1, phrase_time_limit=3)
+                b = datetime.datetime.now()
                 # audio = yield from queue.get()
                 # message = yield from
             except sr.WaitTimeoutError:
                 continue
-            # print("New audio")
+            #print("New audio "+ str((b-a).seconds))
             queue.put(audio)
     queue.join()
 
@@ -551,6 +663,18 @@ def get_anim_trigger_sel_drop_down():
 
 def to_js_bool_string(bool_value):
     return "true" if bool_value else "false"
+
+
+@flask_app.route("/api/robot/do", methods=['POST',])
+def api_robot_do():
+    payload = request.json
+    print(payload)
+    try:
+        Nodeps.robot.actions.do(payload)
+        result = True
+    except:
+        result = False
+    return json.dumps({"success": result})
 
 
 @flask_app.route("/")
@@ -1009,7 +1133,7 @@ def run():
 
     done = threading.Event()
     robot = Nodeps(enable_face_detection=True, enable_custom_object_detection=True)
-    robot.connect()
+    robot.connect(timeout=30)
 
     flask_app.remote_control_vector = RemoteControlVector(robot)
     flask_app.display_debug_annotations = DebugAnnotations.ENABLED_ALL.value
