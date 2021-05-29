@@ -135,7 +135,7 @@ class Nodeps(anki_vector.AsyncRobot):
     activation_word = ["buddy", ]
     deactivation_word = ["hey vector", "hey victor"]
     conversation_active = False
-    conversation_active_time = 12
+    conversation_active_time = 20
     last_talk = datetime.datetime.now() - datetime.timedelta(seconds=conversation_active_time+1)
     robot = None
     last_voice_heard = None
@@ -168,6 +168,7 @@ class Nodeps(anki_vector.AsyncRobot):
             }
             r = requests.post('http://localhost:5005/webhooks/myio/webhook', json=payload)
             if r.status_code == 200:
+                #import pdb; pdb.set_trace()
                 for item in r.json():
                     if "text" in item:
                         try:
