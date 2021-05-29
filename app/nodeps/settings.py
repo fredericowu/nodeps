@@ -47,7 +47,7 @@ INSTALLED_APPS = [
     # 'api.apps.APIConfig',
     #'account.apps.AccountConfig',
     #'rest_framework.authtoken',
-    'advanced_filters',
+    #'advanced_filters',
     'django_extensions',
     'django_celery_results',
 ]
