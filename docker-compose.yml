@@ -19,10 +19,10 @@ services:
     security_opt:
       - seccomp:unconfined
 
-  redis-nodeps:
-    image: redis
-    ports:
-      - "${REDIS_PORT}:6379"
+#  redis-nodeps:
+#    image: redis
+#    ports:
+#      - "${REDIS_PORT}:6379"
 #
 #  kafka:
 #    image: wurstmeister/kafka

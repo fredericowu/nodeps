@@ -121,7 +121,7 @@ class LuluIsPlaying(RobotAction):
         robot.world.connect_cube()
         robot.behavior.say_text("Lulu is playing").result(10)
         robot.anim.play_animation_trigger('GreetAfterLongTime').result(10)
-        robot.behavior.drive_straight(distance_mm(200), speed_mmps(100)).result(10)
+        robot.behavior.drive_straight(distance_mm(100), speed_mmps(100)).result(10)
         robot.behavior.say_text("he is playing").result(10)
         robot.behavior.turn_in_place(degrees(70)).result(10)
         robot.behavior.say_text("Lulu is playing").result(10)
@@ -130,18 +130,22 @@ class LuluIsPlaying(RobotAction):
         robot.behavior.drive_on_charger()
 
 
+class NameHeard(RobotAction):
+    def __init__(self, robot, arguments=None):
+        robot.anim.play_animation('anim_petting_lvl1_01')
+
 class Nodeps(anki_vector.AsyncRobot):
     recognizer = sr.Recognizer()
     activation_word = ["buddy", ]
     deactivation_word = ["hey vector", "hey victor"]
     conversation_active = False
-    conversation_active_time = 20
+    conversation_active_time = 6
     last_talk = datetime.datetime.now() - datetime.timedelta(seconds=conversation_active_time+1)
     robot = None
     last_voice_heard = None
     #_has_control = False
 
-    def process_text(self, text, time_took=None):
+    def process_text(self, text, time_took=None, wake_only=False):
         self.last_voice_heard = datetime.datetime.now()
 
         # TODO: is_conversation_active( heard_activation / heard_deactivation)
@@ -157,9 +161,10 @@ class Nodeps(anki_vector.AsyncRobot):
             if self.robot.conn._behavior_control_level is None:
                 self.robot.conn.request_control()
             Nodeps.last_talk = datetime.datetime.now()
-            need_processing = True
+            if not wake_only:
+                need_processing = True
 
-        print("Decoded audio [" + str(Nodeps.conversation_active) + "] " + str(time_took) + ": " + text)
+        print("Decoded audio ["+str(datetime.datetime.now())+"][" + str(Nodeps.conversation_active) + "] " + str(time_took) + ": " + text)
         if need_processing:
             payload = {
                 "sender": "test_user",
@@ -254,11 +259,11 @@ def create_default_image(image_width, image_height, do_gradient=False):
 def audio_worker(queue, robot):
     print("starting worker")
     while True:
-        audio = queue.get()
+        task = queue.get()
         # print("Received audio")
         try:
             a = datetime.datetime.now()
-            text = Nodeps.recognizer.recognize_google(audio)
+            text = Nodeps.recognizer.recognize_google(task["audio"])
             b = datetime.datetime.now()
         except sr.UnknownValueError:
             continue
@@ -273,17 +278,20 @@ def audio_worker(queue, robot):
 
             #import pdb; pdb.set_trace()
         if text:
-            robot.process_text(text, time_took=(b - a).seconds)
+            wake_only = task.get("wake_only")
+            robot.process_text(text, time_took=(b - a).seconds, wake_only=wake_only)
         # queue.task_done()
 
 
 def audio_listener(queue):
+    PREFFERED_MIC = ("WEB CAM", "MacBook Pro Microphone")
 
-    PREFFERED_MIC = "WEB CAM"
-    try:
-        device_index = sr.Microphone.list_microphone_names().index(PREFFERED_MIC)
-    except ValueError:
-        device_index = None
+    device_index = None
+    for mic in PREFFERED_MIC:
+        try:
+            device_index = sr.Microphone.list_microphone_names().index(mic)
+        except ValueError:
+            next
 
     print("device_index = " + str(device_index))
     with sr.Microphone(device_index=device_index) as source:
@@ -299,11 +307,40 @@ def audio_listener(queue):
             except sr.WaitTimeoutError:
                 continue
             #print("New audio "+ str((b-a).seconds))
-            queue.put(audio)
+            queue.put({"audio": audio})
+    queue.join()
+
+
+
+def wakeword_listener(queue):
+
+    PREFFERED_MIC = "MacBook Pro Microphone"
+    try:
+        device_index = sr.Microphone.list_microphone_names().index(PREFFERED_MIC)
+    except ValueError:
+        device_index = None
+
+    print("device_index = " + str(device_index))
+    with sr.Microphone(device_index=device_index) as source:
+    #with sr.Microphone() as source:
+        print("Say something!")
+        while True:
+            try:
+                a = datetime.datetime.now()
+                audio = Nodeps.recognizer.listen(source, timeout=1, phrase_time_limit=1)
+                b = datetime.datetime.now()
+                # audio = yield from queue.get()
+                # message = yield from
+            except sr.WaitTimeoutError:
+                continue
+            #print("New audio "+ str((b-a).seconds))
+            queue.put({"audio":audio, "wake_only": True})
     queue.join()
 
 
 def audio_main(robot):
+    print("Microphones")
+    print(sr.Microphone.list_microphone_names())
     queue = Queue()
     threads = []
     for i in range(2):
@@ -314,6 +351,10 @@ def audio_main(robot):
     t = threading.Thread(target=audio_listener, args=(queue,))
     threads.append(t)
     t.start()
+
+    #t = threading.Thread(target=wakeword_listener, args=(queue,))
+    #threads.append(t)
+    #t.start()
 
 
 flask_app = Flask(__name__)
@@ -1110,7 +1151,7 @@ def handle_eval():
     message = json.loads(request.data.decode("utf-8"))
     status = False
     print("try to eval", message)
-    robot = flask_app.remote_control_vector.vector
+    robot = Nodeps.robot
 
     # import pdb;
     # pdb.set_trace()
@@ -1146,7 +1187,7 @@ def run():
     robot.camera.image_annotator.add_annotator('robotState', RobotStateDisplay)
 
     audio_main(robot)
-    flask_helpers.run_flask(flask_app, enable_flask_logging=False, open_page=False)
+    flask_helpers.run_flask(flask_app, enable_flask_logging=False, open_page=False, host_ip="0.0.0.0")
 
 
 if __name__ == '__main__':
