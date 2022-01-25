@@ -5,6 +5,10 @@ from xbox.webapi.common.exceptions import AuthenticationException
 from xbox.webapi.api.provider.presence import PresenceLevel
 import datetime
 from django.utils import timezone
+import os
+
+
+TOKEN_FILE = os.path.dirname(__file__) + "/lib/xbox_friends/tokens/tokens.json"
 
 
 class XboxFriends(models.Model):
@@ -18,18 +22,36 @@ class XboxFriends(models.Model):
     last_check = models.DateTimeField(auto_now=True)
 
 
+
     @classmethod
     def _get_settings(self, settings, name):
         return next(filter(lambda a: a["id"] == name, settings), {'value': None})["value"]
 
     @classmethod
+    def generate_token(cls):
+        user = os.getenv("XBOX_USER")
+        password = os.getenv("XBOX_PASSWORD")
+        # import pdb; pdb.set_trace()
+        os.system(f"source /home/ubuntu/workspace/nodeps/app/venv/bin/activate; source /Users/fred.diaswu/workspace/fred/nodeps/app/venv/bin/activate; xbox-authenticate --tokens  {TOKEN_FILE} --email {user} --password {password}")
+
+
+    @classmethod
     def check_status(cls):
-        auth_mgr = AuthenticationManager.from_file('addon/lib/xbox_friends/tokens/tokens.json')
-        auth_mgr.authenticate(do_refresh=True)
+        auth_mgr = AuthenticationManager.from_file(TOKEN_FILE)
+        try:
+            auth_mgr.authenticate(do_refresh=True)
+        except AuthenticationException:
+            cls.generate_token()
+
+
         xbl_client = XboxLiveClient(auth_mgr.userinfo.userhash, auth_mgr.xsts_token.jwt, auth_mgr.userinfo.xuid)
         friendslist = xbl_client.people.get_friends_own().json()
         people = [o["xuid"] for o in friendslist["people"]]
-        profiles = xbl_client.profile.get_profiles(people).json()["profileUsers"]
+
+        profiles_data = xbl_client.profile.get_profiles(people).json()
+        profiles = profiles_data.get("profileUsers", [])
+        if not profiles:
+           print("Profile Users not found!!!")
 
         status = {}
         for profile in profiles:

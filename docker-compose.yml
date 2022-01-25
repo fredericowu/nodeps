@@ -1,12 +1,15 @@
 version: '3'
 services:
   mysql-nodeps:
-    image: mysql:latest
-    entrypoint: ['docker-entrypoint.sh', '--default-authentication-plugin=mysql_native_password']
+    #image: mariadb:latest
+    image: ghcr.io/linuxserver/mariadb
+    #entrypoint: ['docker-entrypoint.sh', '--default-authentication-plugin=mysql_native_password']
     restart: always
     volumes:
       - ./database-mysql:/var/lib/mysql:cached
     environment:
+      PUID: 1000
+      PGID: 1000
       MYSQL_PASSWORD: "${DB_PASSWORD}"
       MYSQL_USER: "${DB_USER}"
       MYSQL_DATABASE: "${DB_NAME}"
@@ -16,10 +19,10 @@ services:
     security_opt:
       - seccomp:unconfined
 
-  redis-nodeps:
-    image: redis
-    ports:
-      - "${REDIS_PORT}:6379"
+#  redis-nodeps:
+#    image: redis
+#    ports:
+#      - "${REDIS_PORT}:6379"
 #
 #  kafka:
 #    image: wurstmeister/kafka
