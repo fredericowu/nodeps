@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/3.1/ref/settings/
 from pathlib import Path
 import os
 import pymysql
+from datetime import timedelta
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -42,6 +43,7 @@ INSTALLED_APPS = [
     'corsheaders',
     #'rest_framework',
     'bot.apps.BotConfig',
+    'addon.apps.AddonConfig',
     # 'api.apps.APIConfig',
     #'account.apps.AccountConfig',
     #'rest_framework.authtoken',
@@ -207,5 +209,13 @@ CACHES = {
         'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
         'LOCATION': 'cache_table',
     }
+}
+
+
+CELERY_BEAT_SCHEDULE = {
+    'check_status': {
+         'task': 'bot.tasks.check_status',
+         'schedule': timedelta(minutes=5),
+        },
 }
 

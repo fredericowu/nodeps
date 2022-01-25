@@ -1,8 +1,11 @@
-from telegram.ext import Updater
-from telegram.ext import CommandHandler
-from telegram.ext import MessageHandler, Filters
+#from telegram.ext import Updater
+#from telegram.ext import CommandHandler
+#from telegram.ext import MessageHandler, Filters
 import os
 import logging
+import telebot
+import time
+from django.utils import timezone
 
 # Enable logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -10,6 +13,205 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 
+class TelegramBot:
+    token = None
+    connection = None
+
+    #@classmethod
+    #def send_message(cls, to, message):
+    #    return cls.bot.send_message(to, message)
+
+    def __init__(self, token=None):
+        if not TelegramBot.token:
+            TelegramBot.token = token
+
+        if not TelegramBot.token:
+            TelegramBot.token = os.environ.get("TELEGRAM_TOKEN")
+
+        if not TelegramBot.token:
+            raise Exception("Telegram Bot needs a token")
+
+        connection = telebot.TeleBot(TelegramBot.token)
+        TelegramBot.connection = connection
+
+        # self.start_tcpserver()
+
+        # import logging
+        # telebot.logger.setLevel(logging.DEBUG)
+
+        # def cleanup():
+        #    print "Limpando Django_ChatAPI"
+        #    self.zapuser.stop_running()
+
+        # atexit.register(cleanup)
+
+        @connection.message_handler(func=lambda message: True)
+        def on_message_received(message):
+            print("aqui")
+            print(message)
+            TelegramBot.connection.send_message(message.from_user.id, "you said: "+message.text)
+            """
+            from apps.whatsapp.models import Mensagem, Contato, Grupo, Midia
+
+            chat_id = message.chat.id
+
+            contato = Contato().get_or_add(message.from_user.id, self.zapuser, message.from_user.first_name,
+                                           message.from_user.last_name)
+            grupo = None
+            # Reply to the message
+            # self.bot.sendMessage(chat_id=chat_id, text=update.message.text)
+
+            # print "----"
+            # print update.message.chat_id
+            # print update.message.chat_type
+            # print update.message['chat']['type']
+
+            m = Mensagem()
+
+            m.direcao = 2
+            if message.chat.type == 'private':
+                m.tipo = 1
+            else:
+                grupo = Grupo().get_or_add([message.chat.id, message.chat.title], self.zapuser)
+
+                m.tipo = 2
+                m.grupo = grupo
+
+            m.chat_id = chat_id
+            m.contato = contato
+            m.zapuser = self.zapuser
+            m.mensagem = message.text
+            m.mensagem_id = message.message_id
+            m.servidor_recebeu = datetime.datetime.fromtimestamp(int(message.date))
+
+            if message.photo:
+                photo = message.photo
+                largest = photo[len(photo) - 1]
+
+                midia = Midia()
+                midia.tipo_midia = 1
+                midia.hash = largest.file_id
+                midia.width = largest.width
+                midia.height = largest.height
+                midia.size = largest.file_size
+                # midia.save()
+
+                m.midia = midia
+
+            m.save()
+            CommandBOT(self.zapuser, m).parse()
+            """
+
+    def loop(self):
+        print("start poll")
+        #time.sleep(10)
+        TelegramBot.connection.polling()
+
+        """
+        while True:
+            time.sleep(1)
+            TelegramBot.bot.get_updates(long_polling_timeout=3)
+
+            print("pooling..")
+        """
+
+            # if self.send_messages:
+            #    print "deu sendmessages"
+            #    self.sendMessages()
+
+        # self.bot.polling(False, 1, 1)
+        # self.bot.__retrieve_updates(1)
+        print("end poll")
+
+
+    """
+    def connect(self):
+        # self.zapuser.is_logado = False
+        # self.zapuser.save()
+
+        self.last_connect_time = timezone.now()
+        self.onLogado()
+
+    def reconnect(self):
+        # self.api.restart()
+        self.connect()
+    
+    def onLogado(self, event=None):
+        from apps.whatsapp.models import Mensagem
+        self.zapuser.is_logado = True
+        self.zapuser.qtd_ultimo_login_erro = 0
+        self.zapuser.ultimo_login_sucesso = timezone.now()
+        self.zapuser.save()
+
+        ""
+        # reseta os envios pendurados
+        msgs = Mensagem.objects.filter( zapuser = self.zapuser, status_envio = 2)
+        for m in msgs:
+            m.status_envio = 1
+            m.save()
+
+        ""
+        self.sendMessages()
+
+    def onLoginFailed(self, event):
+        print "Falhou LOGIN ", event[0], event[1]
+        self.zapuser.qtd_ultimo_login_erro = self.zapuser.qtd_ultimo_login_erro + 1
+        self.zapuser.ultimo_login_erro = timezone.now()
+
+        if self.zapuser.qtd_ultimo_login_erro >= 5:
+            self.zapuser.ativo = False
+
+        self.zapuser.save()
+
+        if not self.zapuser.ativo:
+            print "Numero de tentativas maximas atingidas"
+            exit()
+
+    def onDeslogado(self, event):
+        # self.zapuser.is_logado = False
+        # self.zapuser.save()
+        self.reconnect()
+
+    def run(self):
+        # se nao ok, aguardar um tempo tentar novamente até dar o numero maximo de tentativas e desativar
+        print "Iniciando Numero", self.zapuser.numero, os.getpid()
+        self.zapuser.set_pid(os.getpid())
+        self.connect()
+        self.loop()
+        # self.zapuser.stop_running()
+    """
+
+
+    """
+    def sendMessages(self):
+        from django.db import connection
+        connection.close()
+
+        # self.zapuser.do_sendMessages()
+
+        from apps.whatsapp.models import Mensagem
+        interface = Django_TelegramAPI(self.zapuser, False)
+        for m in Mensagem.objects.filter(direcao=1, status_envio=1, zapuser=self.zapuser).order_by('pk'):
+            m.status_envio = 2
+            m.enviada = True
+            m.save()
+
+            # process_sendMessage.delay(interface, m)
+            bg = False
+
+            if m.midia:
+                if m.midia.xv:
+                    if m.midia.xv.telegram_file_id == "" and m.midia.xv.telegram_file_id_original == "":
+                        bg = True
+
+            if bg:
+                process_sendMessage.delay(interface, m)
+            else:
+                process_sendMessage(interface, m)
+    """
+
+
+"""
 class TelegramBot:
     updater = None
     bot = None
@@ -19,21 +221,19 @@ class TelegramBot:
     chats = {}
 
     def __init__(self, token=None):
-        if not self.token:
-            if not TelegramBot.token:
-                TelegramBot.token = token
 
-            if not TelegramBot.token:
-                TelegramBot.token = os.environ.get("TELEGRAM_TOKEN")
+        if not TelegramBot.token:
+            TelegramBot.token = token
 
-            self.token = TelegramBot.token
+        if not TelegramBot.token:
+            TelegramBot.token = os.environ.get("TELEGRAM_TOKEN")
 
-        if not self.token:
+        if not TelegramBot.token:
             raise Exception("Telegram Bot needs a token")
 
         if TelegramBot.updater is None:
             logger.info("Starting Telegram Bot")
-            TelegramBot.updater = Updater(token=self.token)
+            TelegramBot.updater = Updater(token=TelegramBot.token)
             TelegramBot.bot = TelegramBot.updater.bot
 
             handlers = {
@@ -55,8 +255,8 @@ class TelegramBot:
 
             TelegramBot.updater.start_polling()
 
-        self.updater = TelegramBot.updater
-        self.bot = TelegramBot.bot
+        #self.updater = TelegramBot.updater
+        #self.bot = TelegramBot.bot
 
     @classmethod
     def get_chat_id(cls, to):
@@ -125,6 +325,6 @@ class TelegramBot:
             cls.messages.pop(0)
 
         cls.messages.append([in_out, message, chat_id])
-
+"""
 
 
